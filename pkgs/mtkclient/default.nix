@@ -1,4 +1,4 @@
-{ lib, python3, python3Packages, keystone, ... }:
+{ lib, python3, python3Packages, keystone, pkgs, ... }:
 
 python3Packages.buildPythonPackage rec {
   pname = "mtkclient";
