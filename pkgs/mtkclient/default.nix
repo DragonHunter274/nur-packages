@@ -4,7 +4,7 @@ python3Packages.buildPythonPackage rec {
   pname = "mtkclient";
   version = "2.0.1.freeze";
 
-  src = fetchFromGitHub {
+  src = pkgs.fetchFromGitHub {
     owner = "bkerler";
     repo = "mtkclient";
     rev = "2.0.1.freeze";
