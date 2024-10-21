@@ -22,7 +22,7 @@ buildDotnetModule rec {
     description = "GUI Flash tool for BK7231 WiFi chips";
     homepage = "https://github.com/openshwprojects/BK7231GUIFlashTool";
     license = licenses.gpl3;
-    maintainers = [ ];
+    maintainers = with maintainers; [  ];
     platforms = platforms.unix;
   };
 }
