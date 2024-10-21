@@ -16,7 +16,7 @@ buildDotnetModule rec {
 
   projectFile = "BK7231Flasher.sln";
   executables = [ "beken-flasher" ];
-  nugetDeps = [];
+  nugetDeps = ./deps.nix;
 
   meta = with lib; {
     description = "GUI Flash tool for BK7231 WiFi chips";
