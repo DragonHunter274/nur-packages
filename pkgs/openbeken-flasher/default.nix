@@ -11,7 +11,7 @@ buildDotnetModule rec {
     owner = "openshwprojects";
     repo = "BK7231GUIFlashTool";
     rev = "v${version}";
-    sha256 = ""; # Add hash after first attempt
+    sha256 = "sha256-FN2rVKqYzgbIoLlSnLSTegpoSu5U41mAmpw0erzF4dQ="; 
   };
 
   projectFile = "BK7231Flasher.sln";
