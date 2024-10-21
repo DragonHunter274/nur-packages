@@ -16,6 +16,7 @@
 
   example-package = pkgs.callPackage ./pkgs/example-package { };
   mtkclient = pkgs.callPackage ./pkgs/mtkclient { };
+  openbeken-flasher = pkgs.callPackage ./pkgs/openbeken-flasher { };
   # some-qt5-package = pkgs.libsForQt5.callPackage  ./pkgs/some-qt5-package { };
   # ...
 }
