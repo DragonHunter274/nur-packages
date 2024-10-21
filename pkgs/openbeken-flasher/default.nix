@@ -11,17 +11,18 @@ buildDotnetModule rec {
     owner = "openshwprojects";
     repo = "BK7231GUIFlashTool";
     rev = "v${version}";
-    sha256 = "sha256-FN2rVKqYzgbIoLlSnLSTegpoSu5U41mAmpw0erzF4dQ="; 
+    sha256 = "sha256-FN2rVKqYzgbIoLlSnLSTegpoSu5U41mAmpw0erzF4dQ=";
   };
 
   projectFile = "BK7231Flasher.sln";
   executables = [ "beken-flasher" ];
+  nugetDeps = ./deps.nix;
 
   meta = with lib; {
     description = "GUI Flash tool for BK7231 WiFi chips";
     homepage = "https://github.com/openshwprojects/BK7231GUIFlashTool";
-    license = licenses.gpl3; # Adjust if this isn't the correct license
-    maintainers = with maintainers; [  ]; # Add your maintainer name here
+    license = licenses.gpl3;
+    maintainers = [ ];
     platforms = platforms.unix;
   };
 }
