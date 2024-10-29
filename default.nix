@@ -1,10 +1,5 @@
 { pkgs ? import <nixpkgs> { } }:
 
-let
-  lib = import ./lib { inherit pkgs; };
-  gnome-keyring = pkgs.gnome.gnome-keyring; # Correctly reference gnome-keyring
-in
-{
   modules = import ./modules; # NixOS modules
   overlays = import ./overlays; # nixpkgs overlays
 
