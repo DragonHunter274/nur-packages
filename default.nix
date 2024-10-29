@@ -13,7 +13,6 @@ in
   openbeken-flasher = pkgs.callPackage ./pkgs/openbeken-flasher { };
   
   bitwarden-desktop = pkgs.callPackage ./pkgs/bitwarden-desktop/package.nix {
-    inherit (pkgs) lib dbus electron_32 glib gtk3 libsecret nodejs_20;
     gnome-keyring = gnome-keyring; # Pass it to the package
   };
 }
