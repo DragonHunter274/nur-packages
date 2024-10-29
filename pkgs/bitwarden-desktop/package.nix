@@ -219,10 +219,7 @@ in buildNpmPackage rec {
     homepage = "https://bitwarden.com";
     license = lib.licenses.gpl3;
     maintainers = with lib.maintainers; [ amarshall ];
-    platforms = with lib.platforms; [
-      nixos-unstable
-      nixpkgs-unstable
-    ];
+    platforms = [ "x86_64-linux" ]
     mainProgram = "bitwarden";
   };
 }
