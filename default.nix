@@ -8,6 +8,6 @@
   openbeken-flasher = pkgs.callPackage ./pkgs/openbeken-flasher { };
   
   bitwarden-desktop = pkgs.callPackage ./pkgs/bitwarden-desktop/package.nix { 
-   gnome-keyring = pkgs.gnime.gnome-keyring;
+   gnome-keyring = pkgs.gnome.gnome-keyring;
  };
 }
