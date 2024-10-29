@@ -219,7 +219,7 @@ in buildNpmPackage rec {
     homepage = "https://bitwarden.com";
     license = lib.licenses.gpl3;
     maintainers = with lib.maintainers; [ amarshall ];
-    platforms = with pkgs.lib.platforms; [
+    platforms = with lib.platforms; [
       nixos-unstable
       nixpkgs-unstable
     ];
