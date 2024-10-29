@@ -1,5 +1,5 @@
 { pkgs ? import <nixpkgs> { } }:
-
+{
   modules = import ./modules; # NixOS modules
   overlays = import ./overlays; # nixpkgs overlays
 
