@@ -8,6 +8,10 @@
 
 { pkgs ? import <nixpkgs> { } }:
 
+
+let
+  lib = import ./lib { inherit pkgs; };
+in
 {
   # The `lib`, `modules`, and `overlays` names are special
   lib = import ./lib { inherit pkgs; }; # functions
