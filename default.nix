@@ -12,7 +12,7 @@ in
   mtkclient = pkgs.callPackage ./pkgs/mtkclient { };
   openbeken-flasher = pkgs.callPackage ./pkgs/openbeken-flasher { };
   
-  bitwarden-desktop = pkgs.callPackage ./pkgs/bitwarden-desktop/package.nix {
-    gnome-keyring = gnome-keyring; # Pass it to the package
-  };
+  bitwarden-desktop = pkgs.callPackage ./pkgs/bitwarden-desktop/package.nix { 
+   inherit (pkgs) gnome-keyring;
+ };
 }
