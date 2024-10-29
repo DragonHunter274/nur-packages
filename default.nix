@@ -17,7 +17,10 @@
   example-package = pkgs.callPackage ./pkgs/example-package { };
   mtkclient = pkgs.callPackage ./pkgs/mtkclient { };
   openbeken-flasher = pkgs.callPackage ./pkgs/openbeken-flasher { };
-  bitwarden-desktop = pkgs.callPackage ./pkgs/bitwarden-desktop/package.nix { };
+  bitwarden-desktop = pkgs.callPackage ./pkgs/bitwarden-desktop/package.nix {
+    inherit (pkgs) lib dbus gnome-keyring electron_32 glib gtk3 libsecret nodejs_20;
+    # Add any other required inputs as necessary
+  };
   # some-qt5-package = pkgs.libsForQt5.callPackage  ./pkgs/some-qt5-package { };
   # ...
 }
