@@ -17,6 +17,7 @@
   example-package = pkgs.callPackage ./pkgs/example-package { };
   mtkclient = pkgs.callPackage ./pkgs/mtkclient { };
   openbeken-flasher = pkgs.callPackage ./pkgs/openbeken-flasher { };
+  bitwarden-desktop = pkgs.callPackage ./pkgs/bitwarden-desktop/package.nix { };
   # some-qt5-package = pkgs.libsForQt5.callPackage  ./pkgs/some-qt5-package { };
   # ...
 }
