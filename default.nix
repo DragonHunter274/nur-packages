@@ -8,4 +8,5 @@
   openbeken-flasher = pkgs.callPackage ./pkgs/openbeken-flasher { };
   rofi-nixsearch = pkgs.callPackage ./pkgs/rofi-nix-search/package.nix { };  
   docker-credential-ghcr-login = pkgs.callPackage ./pkgs/docker-credential-ghcr-login { };
+  ip-sender = pkgs.callPackage ./pkgs/ip-sender { };
 }
