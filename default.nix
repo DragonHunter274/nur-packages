@@ -10,4 +10,5 @@
   docker-credential-ghcr-login = pkgs.callPackage ./pkgs/docker-credential-ghcr-login { };
   ip-sender = pkgs.callPackage ./pkgs/ip-sender { };
   vesc-tool = pkgs.libsForQt5.callPackage ./pkgs/vesc-tool/package.nix { };
+  rbw-run = pkgs.callPackage ./pkgs/rbw-run { };
 }
