@@ -1,0 +1,95 @@
+diff --git a/epan/dissectors/packet-mdb.c b/epan/dissectors/packet-mdb.c
+index 00518416b8..1de2deeee9 100644
+--- a/epan/dissectors/packet-mdb.c
++++ b/epan/dissectors/packet-mdb.c
+@@ -90,6 +90,7 @@ static int hf_mdb_data;
+ static int hf_mdb_chk;
+ 
+ static expert_field ei_mdb_short_packet;
++static expert_field ei_mdb_bad_checksum;
+ 
+ #define MDB_EVT_DATA_MST_PER 0xFF
+ #define MDB_EVT_DATA_PER_MST 0xFE
+@@ -243,6 +244,18 @@ static const value_string mdb_cgw_resp[] = {
+     { 0, NULL }
+ };
+ 
++static uint8_t calculate_mdb_checksum(tvbuff_t *tvb, int offset, int len)
++{
++    uint8_t sum = 0;
++    int i;
++
++    for (i = 0; i < len; i++) {
++        sum += tvb_get_uint8(tvb, offset + i);
++    }
++
++    return sum;
++}
++
+ static void dissect_mdb_ack(tvbuff_t *tvb, int offset,
+         packet_info *pinfo, proto_tree *tree)
+ {
+@@ -694,8 +707,23 @@ static void dissect_mdb_mst_per(tvbuff_t *tvb, int offset, packet_info *pinfo,
+     }
+     offset += data_len;
+ 
+-    /* XXX - verify the checksum */
+-    proto_tree_add_item(tree, hf_mdb_chk, tvb, offset, 1, ENC_BIG_ENDIAN);
++    /* Verify the checksum */
++    {
++        uint8_t calculated_chk, received_chk;
++        proto_item *chk_item;
++
++        /* Checksum covers address byte + data bytes */
++        calculated_chk = calculate_mdb_checksum(tvb, offset - data_len - 1, data_len + 1);
++        received_chk = tvb_get_uint8(tvb, offset);
++
++        chk_item = proto_tree_add_item(tree, hf_mdb_chk, tvb, offset, 1, ENC_BIG_ENDIAN);
++
++        if (calculated_chk != received_chk) {
++            expert_add_info_format(pinfo, chk_item, &ei_mdb_bad_checksum,
++                "Bad checksum: expected 0x%02x, received 0x%02x",
++                calculated_chk, received_chk);
++        }
++    }
+ }
+ 
+ static void dissect_mdb_per_mst(tvbuff_t *tvb, int offset, packet_info *pinfo,
+@@ -734,8 +762,23 @@ static void dissect_mdb_per_mst(tvbuff_t *tvb, int offset, packet_info *pinfo,
+     }
+     offset += data_len;
+ 
+-    /* XXX - verify the checksum */
+-    proto_tree_add_item(tree, hf_mdb_chk, tvb, offset, 1, ENC_BIG_ENDIAN);
++    /* Verify the checksum */
++    {
++        uint8_t calculated_chk, received_chk;
++        proto_item *chk_item;
++
++        /* Checksum covers all data bytes */
++        calculated_chk = calculate_mdb_checksum(tvb, offset - data_len, data_len);
++        received_chk = tvb_get_uint8(tvb, offset);
++
++        chk_item = proto_tree_add_item(tree, hf_mdb_chk, tvb, offset, 1, ENC_BIG_ENDIAN);
++
++        if (calculated_chk != received_chk) {
++            expert_add_info_format(pinfo, chk_item, &ei_mdb_bad_checksum,
++                "Bad checksum: expected 0x%02x, received 0x%02x",
++                calculated_chk, received_chk);
++        }
++    }
+ }
+ 
+ static int dissect_mdb(tvbuff_t *tvb,
+@@ -985,7 +1028,10 @@ void proto_register_mdb(void)
+     static ei_register_info ei[] = {
+         { &ei_mdb_short_packet,
+             { "mdb.short_packet", PI_PROTOCOL, PI_ERROR,
+-                "MDB packet without payload", EXPFILL }}
++                "MDB packet without payload", EXPFILL }},
++        { &ei_mdb_bad_checksum,
++            { "mdb.bad_checksum", PI_CHECKSUM, PI_ERROR,
++                "Bad checksum", EXPFILL }}
+     };
+ 
+     proto_mdb = proto_register_protocol("Multi-Drop Bus", "MDB", "mdb");
