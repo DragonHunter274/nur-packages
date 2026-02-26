@@ -6,10 +6,11 @@
   example-package = pkgs.callPackage ./pkgs/example-package { };
   mtkclient = pkgs.callPackage ./pkgs/mtkclient { };
   openbeken-flasher = pkgs.callPackage ./pkgs/openbeken-flasher { };
-  rofi-nixsearch = pkgs.callPackage ./pkgs/rofi-nix-search/package.nix { };  
+  rofi-nixsearch = pkgs.callPackage ./pkgs/rofi-nix-search/package.nix { };
   docker-credential-ghcr-login = pkgs.callPackage ./pkgs/docker-credential-ghcr-login { };
   ip-sender = pkgs.callPackage ./pkgs/ip-sender { };
   vesc-tool = pkgs.libsForQt5.callPackage ./pkgs/vesc-tool/package.nix { };
   rbw-run = pkgs.callPackage ./pkgs/rbw-run { };
   wireshark = pkgs.callPackage ./pkgs/wireshark { };
+  flux-local = pkgs.callPackage ./pkgs/flux-local/package.nix { };
 }
