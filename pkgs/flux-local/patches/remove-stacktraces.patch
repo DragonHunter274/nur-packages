@@ -1,0 +1,74 @@
+diff --git a/flux_local/tool/test.py b/flux_local/tool/test.py
+index 3f2dd6c..9357d3e 100644
+--- a/flux_local/tool/test.py
++++ b/flux_local/tool/test.py
+@@ -1,31 +1,35 @@
+ """Flux local test action."""
+ 
++import asyncio
++import logging
++import pathlib
++import sys
++import tempfile
+ from argparse import (
+     ArgumentParser,
+     BooleanOptionalAction,
++)
++from argparse import (
+     _SubParsersAction as SubParsersAction,
+ )
+-import asyncio
+ from dataclasses import dataclass
+-import logging
+-import pathlib
+-import tempfile
+ from pathlib import Path
+-import sys
+-from typing import cast, Generator, Any
++from typing import Any, Generator, cast
++
+ import pytest
+ 
+ from flux_local import git_repo, kustomize
+ from flux_local.exceptions import FluxException
+ from flux_local.helm import Helm, Options, helm_cache
+ from flux_local.manifest import (
+-    Manifest,
+     Cluster,
+-    Kustomization,
+     HelmRelease,
+     HelmRepository,
++    Kustomization,
++    Manifest,
+     OCIRepository,
+ )
++
+ from . import selector
+ 
+ _LOGGER = logging.getLogger(__name__)
+@@ -95,6 +99,12 @@ class HelmReleaseTest(pytest.Item):
+             )
+             await cmd.objects()
+ 
++    def repr_failure(
++        self, excinfo: pytest.ExceptionInfo[BaseException], style: str | None = None
++    ) -> str:
++        """Show only the error message, not the full traceback."""
++        return str(excinfo.value)
++
+     def active_repos(self) -> list[HelmRepository | OCIRepository]:
+         """Return HelmRepositories referenced by a HelmRelease."""
+         repo_key = "-".join(
+@@ -147,6 +157,12 @@ class KustomizationTest(pytest.Item):
+         ).stash()
+         await cmd.objects()
+ 
++    def repr_failure(
++        self, excinfo: pytest.ExceptionInfo[BaseException], style: str | None = None
++    ) -> str:
++        """Show only the error message, not the full traceback."""
++        return str(excinfo.value)
++
+ 
+ class KustomizationCollector(pytest.Collector):
+     """Test collector for a Kustomization."""

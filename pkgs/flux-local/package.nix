@@ -19,6 +19,10 @@ python313Packages.buildPythonApplication {
     hash = "sha256-kTfGqvva39o5PQInpBiwjr4sNIf0I6YqloqWUXGhOLY=";
   };
 
+  patches = [
+    ./patches/remove-stacktraces.patch
+  ];
+
   build-system = [ python313Packages.setuptools ];
 
   dependencies = with python313Packages; [
