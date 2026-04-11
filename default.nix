@@ -13,4 +13,5 @@
   rbw-run = pkgs.callPackage ./pkgs/rbw-run { };
   wireshark = pkgs.callPackage ./pkgs/wireshark { };
   flux-local = pkgs.callPackage ./pkgs/flux-local/package.nix { };
+  tsc-printer = pkgs.callPackage ./pkgs/tsc-printer/package.nix { };
 }
