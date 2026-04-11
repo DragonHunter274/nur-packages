@@ -4,6 +4,7 @@
 , unzip
 , buildFHSEnv
 , patchelf
+, autoPatchelfHook
 , gtk2
 , libusb1
 , cups
@@ -24,9 +25,10 @@ let
       sha256 = "8661fa914b0b07b4c3f32ab9900397a4cb3503e1f1e35aa081e21e6f20c6a2dd";
     };
 
-    nativeBuildInputs = [ unzip patchelf ];
+    nativeBuildInputs = [ unzip patchelf autoPatchelfHook ];
 
-    dontPatchELF = true;
+    # autoPatchelfHook will fix rpaths for filter/backends using these
+    buildInputs = [ cups gtk2 libusb1 cairo glib pango atk gdk-pixbuf ];
 
     unpackPhase = ''
       unzip $src
@@ -64,15 +66,16 @@ let
         -e 's|Icon=.*|Icon=thermalprinterui.png|' \
         $out/share/applications/barcodeprintersetting.desktop
 
-      # Patch interpreter to use FHS /lib64 so the binary uses the FHS glibc
+      runHook postInstall
+    '';
+
+    # autoPatchelfHook runs after installPhase and patches rpaths on all ELF
+    # binaries to point at Nix store libs. After that we override the
+    # interpreter on the UI binaries so they use the FHS glibc at runtime.
+    postFixup = ''
       patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 \
         $out/bin/thermalprinterui \
-        $out/bin/thermalprinterut \
-        $out/lib/cups/backend/brusb \
-        $out/lib/cups/backend/brsocket \
-        $out/lib/cups/filter/rastertobarcodetspl
-
-      runHook postInstall
+        $out/bin/thermalprinterut
     '';
   };
 
@@ -87,7 +90,6 @@ let
       pango
       atk
       gdk-pixbuf
-      # Add more as needed — check with: ldd <binary> | grep "not found"
     ];
     runScript = "";
   };
@@ -114,8 +116,10 @@ EOF
       chmod +x $out/bin/$bin
     done
 
+    # Expose filter and backends for CUPS — rpaths already fixed by
+    # autoPatchelfHook so no FHS wrapper needed, CUPS can invoke directly
+    ln -s ${tscdriver-unwrapped}/lib $out/lib
     ln -s ${tscdriver-unwrapped}/share $out/share
-    ln -s ${tscdriver-unwrapped}/lib   $out/lib
 
     runHook postInstall
   '';
@@ -123,7 +127,7 @@ EOF
   meta = with lib; {
     description = "Drivers for TSC Printers";
     homepage = "https://www.tscprinters.com";
-#    license = licenses.unfree;
+ #   license = licenses.unfree;
     platforms = [ "x86_64-linux" ];
     sourceProvenance = with sourceTypes; [ binaryNativeCode ];
   };
