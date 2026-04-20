@@ -21,6 +21,7 @@ python313Packages.buildPythonApplication {
 
   patches = [
     ./patches/remove-stacktraces.patch
+    ./patches/0001-fix-helm-fetching-gitrepository-helm-charts.patch
   ];
 
   build-system = [ python313Packages.setuptools ];

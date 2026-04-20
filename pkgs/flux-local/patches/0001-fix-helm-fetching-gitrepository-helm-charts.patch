@@ -1,0 +1,511 @@
+From 17b9ef2678bab6d428cfa772e8f2eba5bddb6077 Mon Sep 17 00:00:00 2001
+From: DragonHunter274 <schurgel@gmail.com>
+Date: Mon, 20 Apr 2026 13:19:49 +0200
+Subject: [PATCH] fix helm fetching gitrepository helm charts
+
+---
+ flux_local/git_repo.py   | 45 ++++++++++++++++++++++++----------
+ flux_local/manifest.py   | 18 +++++++++++---
+ flux_local/tool/build.py | 20 +++++++++-------
+ flux_local/tool/diff.py  | 20 +++++++++-------
+ flux_local/tool/get.py   | 20 +++++++++-------
+ flux_local/tool/test.py  | 34 +++++++++++++++++++-------
+ flux_local/visitor.py    | 52 ++++++++++++++++++++++++++++++++--------
+ 7 files changed, 148 insertions(+), 61 deletions(-)
+
+diff --git a/flux_local/git_repo.py b/flux_local/git_repo.py
+index 8062423..c382a6e 100644
+--- a/flux_local/git_repo.py
++++ b/flux_local/git_repo.py
+@@ -30,41 +30,41 @@ for cluster in manifest:
+ 
+ import asyncio
+ import contextlib
+-from dataclasses import dataclass, field
+ import logging
+ import os
+ import tempfile
+ from collections import deque
+-from collections.abc import Callable, Awaitable
++from collections.abc import Awaitable, Callable
++from dataclasses import dataclass, field
+ from functools import cache
+ from pathlib import Path
+ from typing import Any, Generator
+ 
+ import git
+-
+ from aiofiles.ospath import isdir
++
+ from . import kustomize, values
+-from .exceptions import FluxException, KustomizePathException
++from .context import trace_context
++from .exceptions import FluxException, InputException, KustomizePathException
+ from .manifest import (
++    CONFIG_MAP_KIND,
+     CRD_KIND,
+     FLUXTOMIZE_DOMAIN,
++    HELM_CHART,
++    HELM_REPO_KIND,
+     KUSTOMIZE_DOMAIN,
++    SECRET_KIND,
+     Cluster,
++    ConfigMap,
++    GitRepository,
++    HelmChartSource,
+     HelmRelease,
+     HelmRepository,
+-    HelmChartSource,
+-    HELM_CHART,
+     Kustomization,
+     Manifest,
+-    ConfigMap,
+-    Secret,
+-    SECRET_KIND,
+-    CONFIG_MAP_KIND,
+     OCIRepository,
+-    HELM_REPO_KIND,
++    Secret,
+ )
+-from .exceptions import InputException
+-from .context import trace_context
+ 
+ __all__ = [
+     "build_manifest",
+@@ -349,6 +349,9 @@ class ResourceSelector:
+     oci_repo: MetadataSelector = field(default_factory=MetadataSelector)
+     """OCIRepository objects to return."""
+ 
++    git_repo: MetadataSelector = field(default_factory=MetadataSelector)
++    """GitRepository objects to return."""
++
+     doc_visitor: DocumentVisitor | None = None
+     """Raw objects to visit."""
+ 
+@@ -664,6 +667,8 @@ async def build_kustomization(
+             kinds.append(SECRET_KIND)
+             # Needed for resolving chartRef in HelmReleases
+             kinds.append(HELM_CHART)
++            # Needed for resolving GitRepository-sourced charts
++            kinds.append(GIT_REPO_KIND)
+         if selector.doc_visitor:
+             kinds.extend(selector.doc_visitor.kinds)
+         if not kinds:
+@@ -700,6 +705,11 @@ async def build_kustomization(
+                 ],
+             )
+         )
++        kustomization.git_repos = [
++            GitRepository.parse_doc(doc)
++            for doc in docs
++            if doc.get("kind") == GIT_REPO_KIND
++        ]
+         kustomization.helm_releases = list(
+             filter(
+                 helm_release_selector.predicate,
+@@ -877,6 +887,15 @@ async def build_manifest(
+                             None,
+                         )
+ 
++            if selector.git_repo.visitor:
++                for kustomization in cluster.kustomizations:
++                    for git_repo_obj in kustomization.git_repos:
++                        await selector.git_repo.visitor.func(
++                            Path(kustomization.path),
++                            git_repo_obj,
++                            None,
++                        )
++
+             if selector.helm_release.visitor:
+                 for kustomization in cluster.kustomizations:
+                     for helm_release in kustomization.helm_releases:
+diff --git a/flux_local/manifest.py b/flux_local/manifest.py
+index 1014b92..2d5823f 100644
+--- a/flux_local/manifest.py
++++ b/flux_local/manifest.py
+@@ -6,14 +6,14 @@ e.g. such as writing management plan for resources.
+ """
+ 
+ import base64
+-from dataclasses import dataclass, field
+ import logging
++from dataclasses import dataclass, field
+ from pathlib import Path
+-from typing import Any, Optional, cast, ClassVar
++from typing import Any, ClassVar, Optional, cast
+ 
+ import aiofiles
+-from mashumaro.codecs.yaml import yaml_decode, yaml_encode
+ from mashumaro import DataClassDictMixin, field_options
++from mashumaro.codecs.yaml import yaml_decode, yaml_encode
+ from mashumaro.config import BaseConfig
+ 
+ from .exceptions import InputException, ObjectNotFoundError
+@@ -894,6 +894,9 @@ class Kustomization(BaseManifest):
+     oci_repos: list[OCIRepository] = field(default_factory=list)
+     """The set of OCIRepositories represented in this kustomization."""
+ 
++    git_repos: list[GitRepository] = field(default_factory=list)
++    """The set of GitRepositories represented in this kustomization."""
++
+     helm_releases: list[HelmRelease] = field(default_factory=list)
+     """The set of HelmRelease represented in this kustomization."""
+ 
+@@ -1059,6 +1062,15 @@ class Cluster(BaseManifest):
+             for repo in kustomization.oci_repos
+         ]
+ 
++    @property
++    def git_repos(self) -> list[GitRepository]:
++        """Return the list of GitRepository objects from all Kustomizations."""
++        return [
++            repo
++            for kustomization in self.kustomizations
++            for repo in kustomization.git_repos
++        ]
++
+     @property
+     def helm_releases(self) -> list[HelmRelease]:
+         """Return the list of HelmRelease objects from all Kustomizations."""
+diff --git a/flux_local/tool/build.py b/flux_local/tool/build.py
+index 793dd83..d8bc436 100644
+--- a/flux_local/tool/build.py
++++ b/flux_local/tool/build.py
+@@ -1,26 +1,28 @@
+ """Flux-local build action."""
+ 
++import logging
++import pathlib
+ from argparse import (
+     ArgumentParser,
+-    _SubParsersAction as SubParsersAction,
+     BooleanOptionalAction,
+ )
+-import pathlib
+-import logging
++from argparse import (
++    _SubParsersAction as SubParsersAction,
++)
+ from typing import cast
+ 
+ from flux_local import git_repo
+-from flux_local.visitor import ContentOutput, HelmVisitor
+ from flux_local.helm import helm_cache
++from flux_local.visitor import ContentOutput, HelmVisitor
+ 
+ from . import selector
+-from .format import open_file
+-from .build_kustomization import (
+-    BuildKustomizationAction as BuildKustomizationNewAction,
+-)
+ from .build_helm import (
+     BuildHelmReleaseAction as BuildHelmReleaseNewAction,
+ )
++from .build_kustomization import (
++    BuildKustomizationAction as BuildKustomizationNewAction,
++)
++from .format import open_file
+ 
+ _LOGGER = logging.getLogger(__name__)
+ 
+@@ -96,6 +98,7 @@ class BuildAllAction:
+         helm_visitor = HelmVisitor()
+         query.helm_repo.visitor = helm_visitor.repo_visitor()
+         query.oci_repo.visitor = helm_visitor.repo_visitor()
++        query.git_repo.visitor = helm_visitor.git_repo_visitor()
+         query.helm_release.visitor = helm_visitor.release_visitor()
+         await git_repo.build_manifest(
+             selector=query, options=selector.options(**kwargs), builder=builder
+@@ -227,6 +230,7 @@ class BuildHelmReleaseAction:
+         query.kustomization.visitor = content.visitor()
+         query.helm_repo.visitor = helm_visitor.repo_visitor()
+         query.oci_repo.visitor = helm_visitor.repo_visitor()
++        query.git_repo.visitor = helm_visitor.git_repo_visitor()
+         query.helm_release.visitor = helm_visitor.release_visitor()
+         query.doc_visitor = helm_visitor.chart_visitor()
+         helm_options = selector.build_helm_options(**kwargs)
+diff --git a/flux_local/tool/diff.py b/flux_local/tool/diff.py
+index 9f57658..4680bc4 100644
+--- a/flux_local/tool/diff.py
++++ b/flux_local/tool/diff.py
+@@ -2,26 +2,26 @@
+ 
+ import asyncio
+ import functools
+-import os
+-from argparse import ArgumentParser, _SubParsersAction as SubParsersAction
+-from contextlib import contextmanager
+ import logging
++import os
+ import pathlib
+ import shlex
+-from typing import cast, Generator, Any
+-
++from argparse import ArgumentParser
++from argparse import _SubParsersAction as SubParsersAction
++from contextlib import contextmanager
++from typing import Any, Generator, cast
+ 
+ from flux_local import git_repo
+-from flux_local.visitor import HelmVisitor, ObjectOutput
+ from flux_local.helm import helm_cache
+ from flux_local.resource_diff import (
++    build_helm_dependency_map,
+     get_helm_release_diff_keys,
+-    perform_yaml_diff,
+     perform_external_diff,
+-    perform_object_diff,
+-    build_helm_dependency_map,
+     perform_json_diff,
++    perform_object_diff,
++    perform_yaml_diff,
+ )
++from flux_local.visitor import HelmVisitor, ObjectOutput
+ 
+ from . import selector
+ from .format import open_file
+@@ -236,6 +236,7 @@ class DiffHelmReleaseAction:
+         query.kustomization.visitor = content.visitor()
+         query.helm_repo.visitor = helm_visitor.repo_visitor()
+         query.oci_repo.visitor = helm_visitor.repo_visitor()
++        query.git_repo.visitor = helm_visitor.git_repo_visitor()
+         query.helm_release.visitor = helm_visitor.release_visitor()
+         query.doc_visitor = helm_visitor.chart_visitor()
+         options = selector.build_helm_options(**kwargs)
+@@ -250,6 +251,7 @@ class DiffHelmReleaseAction:
+             query.kustomization.visitor = orig_content.visitor()
+             query.helm_repo.visitor = orig_helm_visitor.repo_visitor()
+             query.oci_repo.visitor = orig_helm_visitor.repo_visitor()
++            query.git_repo.visitor = orig_helm_visitor.git_repo_visitor()
+             query.helm_release.visitor = orig_helm_visitor.release_visitor()
+             query.doc_visitor = orig_helm_visitor.chart_visitor()
+             await git_repo.build_manifest(
+diff --git a/flux_local/tool/get.py b/flux_local/tool/get.py
+index adbef06..bb17630 100644
+--- a/flux_local/tool/get.py
++++ b/flux_local/tool/get.py
+@@ -1,31 +1,32 @@
+ """Flux-local get action."""
+ 
+ import logging
++import pathlib
++import sys
+ from argparse import (
+     ArgumentParser,
+     BooleanOptionalAction,
++)
++from argparse import (
+     _SubParsersAction as SubParsersAction,
+ )
+-from typing import cast, Any
+-import sys
+-import pathlib
++from typing import Any, cast
+ 
+-from flux_local import git_repo, image, helm
++from flux_local import git_repo, helm, image
+ from flux_local.helm import helm_cache
+ from flux_local.visitor import HelmVisitor, ImageOutput
+ 
++from . import selector
+ from .format import (
++    JsonFormatter,
+     PrintFormatter,
++    StructFormatter,
+     YamlFormatter,
+     YamlListFormatter,
+-    JsonFormatter,
+-    StructFormatter,
+     open_file,
+ )
+-from . import selector
+-from .get_kustomization import GetKustomizationNewAction
+ from .get_helm import GetHelmReleaseNewAction
+-
++from .get_kustomization import GetKustomizationNewAction
+ 
+ _LOGGER = logging.getLogger(__name__)
+ 
+@@ -239,6 +240,7 @@ class GetClusterAction:
+             helm_visitor = HelmVisitor()
+             query.helm_repo.visitor = helm_visitor.repo_visitor()
+             query.oci_repo.visitor = helm_visitor.repo_visitor()
++            query.git_repo.visitor = helm_visitor.git_repo_visitor()
+             query.helm_release.visitor = helm_visitor.release_visitor()
+ 
+         manifest = await git_repo.build_manifest(
+diff --git a/flux_local/tool/test.py b/flux_local/tool/test.py
+index 2ab9ce7..d02fefb 100644
+--- a/flux_local/tool/test.py
++++ b/flux_local/tool/test.py
+@@ -1,31 +1,38 @@
+ """Flux local test action."""
+ 
++import asyncio
++import logging
++import pathlib
++import sys
++import tempfile
+ from argparse import (
+     ArgumentParser,
+     BooleanOptionalAction,
++)
++from argparse import (
+     _SubParsersAction as SubParsersAction,
+ )
+-import asyncio
+ from dataclasses import dataclass
+-import logging
+-import pathlib
+-import tempfile
+ from pathlib import Path
+-import sys
+-from typing import cast, Generator, Any
++from typing import Any, Generator, cast
++
+ import pytest
+ 
+ from flux_local import git_repo, kustomize
+ from flux_local.exceptions import FluxException
+-from flux_local.helm import Helm, Options, helm_cache
++from flux_local.helm import Helm, LocalGitRepository, Options, helm_cache
+ from flux_local.manifest import (
+-    Manifest,
++    GIT_REPOSITORY,
+     Cluster,
+-    Kustomization,
++    GitRepository,
+     HelmRelease,
+     HelmRepository,
++    Kustomization,
++    Manifest,
+     OCIRepository,
+ )
++from flux_local.source_controller.git import fetch_git
++
+ from . import selector
+ 
+ _LOGGER = logging.getLogger(__name__)
+@@ -89,6 +96,15 @@ class HelmReleaseTest(pytest.Item):
+             helm = Helm(pathlib.Path(tmp_dir), pathlib.Path(helm_cache_dir))
+             helm.add_repos(self.active_repos())
+             await helm.update()
++
++            # Resolve GitRepository-sourced charts
++            if self.helm_release.chart.repo_kind == GIT_REPOSITORY:
++                for gr in self.cluster.git_repos:
++                    if gr.repo_name == self.helm_release.repo_name:
++                        artifact = await fetch_git(gr)
++                        helm.add_repo(LocalGitRepository(repo=gr, artifact=artifact))
++                        break
++
+             cmd = await helm.template(
+                 self.helm_release,
+                 self.test_config.helm_options,
+diff --git a/flux_local/visitor.py b/flux_local/visitor.py
+index 35dc533..6c0985c 100644
+--- a/flux_local/visitor.py
++++ b/flux_local/visitor.py
+@@ -5,36 +5,41 @@ or computing diffs.
+ """
+ 
+ import asyncio
+-from abc import ABC, abstractmethod
+-from dataclasses import dataclass
+ import logging
+ import pathlib
+ import tempfile
++from abc import ABC, abstractmethod
++from dataclasses import dataclass
+ from typing import Any
++
+ import yaml
+ 
+ from flux_local import git_repo, image
+ from flux_local.context import trace_context
+-from flux_local.helm import Helm, Options
++from flux_local.helm import Helm, LocalGitRepository, Options
+ from flux_local.kustomize import Kustomize
+ from flux_local.manifest import (
+-    HelmRelease,
+-    HelmChartSource,
++    GIT_REPOSITORY,
+     HELM_CHART,
+-    Kustomization,
++    STRIP_ATTRIBUTES,
++    GitRepository,
++    HelmChartSource,
++    HelmRelease,
+     HelmRepository,
++    Kustomization,
+     Manifest,
+-    OCIRepository,
+     NamedResource,
++    OCIRepository,
+     strip_resource_attributes,
+-    STRIP_ATTRIBUTES,
+ )
+-
++from flux_local.source_controller.git import fetch_git
+ 
+ _LOGGER = logging.getLogger(__name__)
+ 
+ 
+-ResourceType = Kustomization | HelmRelease | HelmRepository | OCIRepository
++ResourceType = (
++    Kustomization | HelmRelease | HelmRepository | OCIRepository | GitRepository
++)
+ 
+ 
+ @dataclass(frozen=True, order=True)
+@@ -230,6 +235,7 @@ class HelmVisitor:
+         """Initialize KustomizationContentOutput."""
+         self.repos: list[HelmRepository | OCIRepository] = []
+         self.releases: list[HelmRelease] = []
++        self.git_repos: list[GitRepository] = []
+         self.helm_charts: dict[
+             str, HelmChartSource
+         ] = {}  # resource_full_name -> HelmChartSource
+@@ -258,6 +264,20 @@ class HelmVisitor:
+ 
+         return git_repo.ResourceVisitor(func=add_repo)
+ 
++    def git_repo_visitor(self) -> git_repo.ResourceVisitor:
++        """Return a git_repo.ResourceVisitor that collects GitRepository objects."""
++
++        async def add_git_repo(
++            kustomization_path: pathlib.Path,
++            doc: ResourceType,
++            cmd: Kustomize | None,
++        ) -> None:
++            if not isinstance(doc, GitRepository):
++                raise ValueError(f"Expected GitRepository: {doc}")
++            self.git_repos.append(doc)
++
++        return git_repo.ResourceVisitor(func=add_git_repo)
++
+     def release_visitor(self) -> git_repo.ResourceVisitor:
+         """Return a git_repo.ResourceVisitor that points to this object."""
+ 
+@@ -308,6 +328,18 @@ class HelmVisitor:
+                 if active_repos := self.active_repos:
+                     helm.add_repos(active_repos)
+                     await helm.update()
++
++                # Resolve GitRepository-sourced charts
++                git_repo_keys: set[str] = {
++                    release.repo_name
++                    for release in self.releases
++                    if release.chart.repo_kind == GIT_REPOSITORY
++                }
++                for gr in self.git_repos:
++                    if gr.repo_name in git_repo_keys:
++                        artifact = await fetch_git(gr)
++                        helm.add_repo(LocalGitRepository(repo=gr, artifact=artifact))
++
+                 tasks = []
+                 for release in self.releases:
+                     if options.skip_invalid_paths and await helm.is_invalid_local_path(
+-- 
+2.52.0
+
