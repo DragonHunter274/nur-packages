@@ -9,14 +9,14 @@
 
 python313Packages.buildPythonApplication {
   pname = "flux-local";
-  version = "8.1.0";
+  version = "8.2.0";
   pyproject = true;
 
   src = fetchFromGitHub {
     owner = "allenporter";
     repo = "flux-local";
-    tag = "8.1.0";
-    hash = "sha256-kTfGqvva39o5PQInpBiwjr4sNIf0I6YqloqWUXGhOLY=";
+    tag = "8.2.0";
+    hash = "sha256-A9n1EKA1sV3vfRRGMPFmPeM+JegPskNf50d4wZrju58=";
   };
 
   patches = [
