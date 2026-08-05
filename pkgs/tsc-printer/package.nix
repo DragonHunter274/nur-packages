@@ -1,48 +1,33 @@
 {
   lib,
   stdenv,
-  fetchurl,
-  unzip,
-  buildFHSEnv,
-  patchelf,
-  autoPatchelfHook,
-  gtk2,
-  libusb1,
-  cups,
-  cairo,
-  glib,
-  pango,
-  atk,
-  gdk-pixbuf,
+  pkgs,
+  fex,  # native FEX interpreter for the build/host platform (unused on x86_64)
 }:
 
 let
-  tscdriver-unwrapped = stdenv.mkDerivation rec {
-    pname = "tscdriver-unwrapped";
-    version = "1.2.13";
+  isNativeX86 = stdenv.hostPlatform.isx86_64;
 
-    src = fetchurl {
+  # The vendor binary is x86_64-only no matter what host we're on, so always
+  # resolve its runtime deps from an explicit x86_64-linux package set.
+  pkgsX86 = if isNativeX86 then pkgs else import pkgs.path { system = "x86_64-linux"; };
+
+  fexInterpreter = "${fex}/bin/FEXInterpreter";
+  execPrefix = lib.optionalString (!isNativeX86) "${fexInterpreter} ";
+
+  version = "1.2.13";
+
+  tscdriver-unwrapped = pkgsX86.stdenv.mkDerivation rec {
+    pname = "tscdriver-unwrapped";
+    inherit version;
+
+    src = pkgsX86.fetchurl {
       url = "https://fs.tscprinters.com/system/files/linux64_v${version}.zip";
       sha256 = "8661fa914b0b07b4c3f32ab9900397a4cb3503e1f1e35aa081e21e6f20c6a2dd";
     };
 
-    nativeBuildInputs = [
-      unzip
-      patchelf
-      autoPatchelfHook
-    ];
-
-    # autoPatchelfHook will fix rpaths for filter/backends using these
-    buildInputs = [
-      cups
-      gtk2
-      libusb1
-      cairo
-      glib
-      pango
-      atk
-      gdk-pixbuf
-    ];
+    nativeBuildInputs = with pkgsX86; [ unzip patchelf autoPatchelfHook ];
+    buildInputs = with pkgsX86; [ cups gtk2 libusb1 cairo glib pango atk gdk-pixbuf ];
 
     unpackPhase = ''
       unzip $src
@@ -83,45 +68,40 @@ let
       runHook postInstall
     '';
 
-    # autoPatchelfHook runs after installPhase and patches rpaths on all ELF
-    # binaries to point at Nix store libs. After that we override the
-    # interpreter on the UI binaries so they use the FHS glibc at runtime.
     postFixup = ''
-        # UI binaries: FHS interpreter for glibc compat
-        patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 \
-          $out/bin/thermalprinterui \
-          $out/bin/thermalprinterut
+      # UI binaries: FHS interpreter for glibc compat
+      patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 \
+        $out/bin/thermalprinterui \
+        $out/bin/thermalprinterut
 
-        # Filter: needs libcups via dlopen at hardcoded FHS paths
-        # Wrap it so it runs inside the FHS env which provides /usr/lib/libcups.so.2
-        mv $out/lib/cups/filter/rastertobarcodetspl \
-           $out/lib/cups/filter/.rastertobarcodetspl-wrapped
-        cat > $out/lib/cups/filter/rastertobarcodetspl << EOF
+      # Filter: needs libcups via dlopen at hardcoded FHS paths.
+      # Wrap it so it runs inside the FHS env (and, cross-arch, through FEX).
+      mv $out/lib/cups/filter/rastertobarcodetspl \
+         $out/lib/cups/filter/.rastertobarcodetspl-wrapped
+      cat > $out/lib/cups/filter/rastertobarcodetspl << EOF
       #!/bin/sh
       exec ${fhsEnv}/bin/tscdriver-fhs \
-        $out/lib/cups/filter/.rastertobarcodetspl-wrapped "\$@"
+        ${execPrefix}$out/lib/cups/filter/.rastertobarcodetspl-wrapped "\$@"
       EOF
-        chmod +x $out/lib/cups/filter/rastertobarcodetspl
+      chmod +x $out/lib/cups/filter/rastertobarcodetspl
 
-        # Same for backends
-        for b in brusb brsocket; do
-          mv $out/lib/cups/backend/$b \
-             $out/lib/cups/backend/.$b-wrapped
-          cat > $out/lib/cups/backend/$b << EOF
+      for b in brusb brsocket; do
+        mv $out/lib/cups/backend/$b \
+           $out/lib/cups/backend/.$b-wrapped
+        cat > $out/lib/cups/backend/$b << EOF
       #!/bin/sh
       exec ${fhsEnv}/bin/tscdriver-fhs \
-        $out/lib/cups/backend/.$b-wrapped "\$@"
+        ${execPrefix}$out/lib/cups/backend/.$b-wrapped "\$@"
       EOF
-          chmod +x $out/lib/cups/backend/$b
-        done
+        chmod +x $out/lib/cups/backend/$b
+      done
     '';
-
   };
 
-  fhsEnv = buildFHSEnv {
+  fhsEnv = pkgsX86.buildFHSEnv {
     name = "tscdriver-fhs";
     targetPkgs =
-      pkgs: with pkgs; [
+      ps: with ps; [
         gtk2
         libusb1
         cups
@@ -138,37 +118,34 @@ in
 
 stdenv.mkDerivation {
   pname = "tscdriver";
-  version = "1.2.13";
+  inherit version;
 
   dontUnpack = true;
   dontBuild = true;
 
   installPhase = ''
-        runHook preInstall
+    runHook preInstall
 
-        install -vdm755 $out/bin
+    install -vdm755 $out/bin
 
-        for bin in thermalprinterui thermalprinterut; do
-          cat > $out/bin/$bin << EOF
+    for bin in thermalprinterui thermalprinterut; do
+      cat > $out/bin/$bin << EOF
     #!/bin/sh
-    exec ${fhsEnv}/bin/tscdriver-fhs ${tscdriver-unwrapped}/bin/$bin "\$@"
+    exec ${fhsEnv}/bin/tscdriver-fhs ${execPrefix}${tscdriver-unwrapped}/bin/$bin "\$@"
     EOF
-          chmod +x $out/bin/$bin
-        done
+      chmod +x $out/bin/$bin
+    done
 
-        # Expose filter and backends for CUPS — rpaths already fixed by
-        # autoPatchelfHook so no FHS wrapper needed, CUPS can invoke directly
-        ln -s ${tscdriver-unwrapped}/lib $out/lib
-        ln -s ${tscdriver-unwrapped}/share $out/share
+    ln -s ${tscdriver-unwrapped}/lib $out/lib
+    ln -s ${tscdriver-unwrapped}/share $out/share
 
-        runHook postInstall
+    runHook postInstall
   '';
 
   meta = with lib; {
     description = "Drivers for TSC Printers";
     homepage = "https://www.tscprinters.com";
-    #   license = licenses.unfree;
-    platforms = [ "x86_64-linux" ];
+    platforms = [ "x86_64-linux" "aarch64-linux" ];
     sourceProvenance = with sourceTypes; [ binaryNativeCode ];
   };
 }
